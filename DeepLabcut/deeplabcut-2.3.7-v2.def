@@ -1,0 +1,73 @@
+Bootstrap: docker
+From: nvidia/cuda:{{ CUDA }}
+
+%arguments
+    CUDA=11.7.1-cudnn8-runtime-ubuntu20.04
+    PYTHON_VERSION=3.9
+    DEEPLABCUT_VERSION=2.3.7
+
+%environment
+    export DLClight=False
+
+%files
+    download_dlcmodels.py
+
+%post
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -yy
+    apt-get install -yy --no-install-recommends \
+        python{{ PYTHON_VERSION }} \
+        python3-pip \
+        ffmpeg \
+        libsm6 \
+        libxext6 \
+        libgtk-3-dev \
+        python3-wxgtk4.0 \
+        locales \
+        binutils \
+        libxkbcommon-x11-0 \
+        libxcb-icccm4 \
+        libxcb-image0 \
+        libxcb-keysyms1 \
+        libxcb-randr0 \
+        libxcb-render-util0 \
+        libxcb-shape0
+
+    ln -s -f /usr/bin/python{{ PYTHON_VERSION }} /usr/bin/python3
+    ln -s -f /usr/bin/python{{ PYTHON_VERSION }} /usr/bin/python
+    ln -s -f /usr/bin/pip3 /usr/bin/pip
+    rm -rf /var/lib/apt/lists/*
+    apt-get clean
+
+    locale-gen en_US.UTF-8 en_GB.UTF-8
+
+    pip3 install --upgrade --no-cache-dir pip
+    pip3 install --upgrade --no-cache-dir \
+        deeplabcut[gui]=={{ DEEPLABCUT_VERSION }} \
+        numpy==1.24.0 \
+        decorator==4.4.2 \
+        tensorflow==2.10 \
+        torch==1.12
+    pip3 list
+
+    # The installed tensorflow version will not work with the latest protocol buffer version,
+    # hence we are fixing the version to 3.20.
+    # See https://developers.google.com/protocol-buffers/docs/news/2022-05-06#python-updates
+    # for details on why this is needed. (re: Aug 21, 2023: retested, still required)
+    pip3 install protobuf==3.20.1
+
+    # TODO required to fix permission errors when running the container with limited permission.
+    chmod a+rwx -R /usr/local/lib/python{{ PYTHON_VERSION }}/dist-packages/deeplabcut/pose_estimation_tensorflow/models/pretrained
+
+    # fix issue with missing QT binding
+    strip --remove-section=.note.ABI-tag /usr/local/lib/python3.9/dist-packages/PySide6/Qt/lib/libQt6Core.so.6
+
+    # download models for DeepLabCut
+    python3 ./download_dlcmodels.py
+
+    # address issue "'PySide6.QtGui.QAction' object has no attribute 'menu'"
+    # see https://github.com/DeepLabCut/DeepLabCut/issues/2344
+    pip3 install --upgrade napari-deeplabcut
+
+%runscript
+    python3 -m deeplabcut "$@"

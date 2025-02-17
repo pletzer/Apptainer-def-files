@@ -1,0 +1,6 @@
+Bootstrap: library
+From: default/centos:7
+
+%post
+    yum -y install libicu readline gdbm
+
