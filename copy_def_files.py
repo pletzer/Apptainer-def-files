@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import argparse
 from pathlib import Path
 
 def copy_def_files(source_dir, target_dir):
@@ -50,12 +51,32 @@ def copy_def_files(source_dir, target_dir):
     print(f"Directories processed: {dirs_processed}")
     print(f"Directories with .def files: {def_files_found}")
 
-if __name__ == "__main__":
-    source_directory = "/opt/nesi/containers"
-    target_directory = "/nesi/project/nesi99999/Dinindu/Apptainer-def-files"
+def main():
+    # Set up argument parser
+    parser = argparse.ArgumentParser(
+        description='Copy .def files from container directories to a target location'
+    )
+    parser.add_argument(
+        '--source_dir',
+        required=True,
+        help='Source directory containing container directories'
+    )
+    parser.add_argument(
+        '--destination_dir',
+        required=True,
+        help='Destination directory where .def files will be copied'
+    )
+    
+    # Parse arguments
+    args = parser.parse_args()
     
     try:
-        copy_def_files(source_directory, target_directory)
+        copy_def_files(args.source_dir, args.destination_dir)
         print("\nOperation completed successfully!")
     except Exception as e:
         print(f"\nAn error occurred: {e}")
+        return 1
+    return 0
+
+if __name__ == "__main__":
+    exit(main())
