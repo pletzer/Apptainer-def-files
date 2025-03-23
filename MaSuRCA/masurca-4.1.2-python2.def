@@ -1,0 +1,53 @@
+Bootstrap: docker
+From: ubuntu:jammy
+
+%labels
+Maintainer marty.hickman@plantandfood.co.nz
+Version 4.1.2
+
+%environment
+  PATH=/opt/MaSuRCA-4.1.2/bin:/usr/bin/python2.7:$PATH
+  export PATH
+  export LANG=en_NZ.UTF-8
+  export LC_ALL=en_NZ.UTF-8
+  export LANGUAGE=en_NZ.UTF-8
+  # Ensure Python 2 is the default Python
+  alias python=python2.7
+
+%post
+  ## Download build prerequisites
+  apt-get update && apt-get install -y \
+    curl build-essential libboost-dev libbz2-dev wget zlib1g-dev locales libenv-path-perl \
+    python2.7 python2.7-dev
+  locale-gen en_NZ.UTF-8
+
+  # Create symbolic links to ensure Python 2 is the default
+  ln -sf /usr/bin/python2.7 /usr/bin/python
+  ln -sf /usr/bin/python2.7 /usr/bin/python2
+
+  # Verify Python version
+  python --version
+  
+  ## Build
+  cd /opt
+  curl -s -L https://github.com/alekseyzimin/masurca/releases/download/v4.1.2/MaSuRCA-4.1.2.tar.gz | tar xz
+  cd MaSuRCA-4.1.2
+  # Fix the install script from exiting with a copy error
+  sed -i 's/cp -a ..\/Flye /cd /' install.sh
+  ./install.sh
+
+  ## Do some cleanup
+  apt-get -y remove --purge build-essential
+  apt-get -y clean all 
+  apt-get -y autoremove --purge
+  
+  # Final check to confirm Python 2 is the default
+  python --version
+
+%runscript
+ if [ -x /opt/MaSuRCA-4.1.2/bin/$APPTAINER_NAME ]; then
+    exec $APPTAINER_NAME "$@"
+ else
+    /bin/echo -e "This Apptainer image cannot provide a single entrypoint. Please use \"apptainer exec $APPTAINER_NAME <cmd>\", where <cmd> is one of the following:\n"
+    exec ls /opt/MaSuRCA-4.1.2/bin
+ fi
