@@ -1,0 +1,55 @@
+Bootstrap: docker
+From: continuumio/miniconda3:latest
+
+%labels
+    MAINTAINER Your Name dinindu.senanayake@nesi.org.nz
+    VERSION AmberTools24
+
+%environment
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate ambertools
+    export PATH=/opt/conda/envs/ambertools/bin:$PATH
+    # Ensure MPI environment variables are set
+    export OMPI_DIR=/opt/conda/envs/ambertools
+    export PATH=$OMPI_DIR/bin:$PATH
+    export LD_LIBRARY_PATH=$OMPI_DIR/lib:$LD_LIBRARY_PATH
+
+%post
+    # Update conda and create ambertools environment
+    conda update -y conda
+    conda config --add channels conda-forge
+    
+    # Create a new environment with AmberTools and explicit OpenMPI
+    conda create -y -n ambertools -c conda-forge ambertools=24 openmpi mpi4py
+    
+    # Make sure the AmberTools environment is activated during installation
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate ambertools
+    
+    # Verify MPI installation
+    which mpiexec || echo "ERROR: mpiexec not found"
+    which mpicc || echo "ERROR: mpicc not found"
+    
+    # Clean conda cache to reduce image size
+    conda clean -afy
+    
+    # Create data directory
+    mkdir -p /data
+
+%runscript
+    . /opt/conda/etc/profile.d/conda.sh
+    conda activate ambertools
+    exec "$@"
+
+%help
+    This container provides AmberTools 24 installed via conda.
+    
+    Usage:
+    - Run the container with an interactive shell:
+        apptainer shell ambertools_conda.sif
+    
+    - Run a specific AmberTools command:
+        apptainer exec ambertools_conda.sif tleap -f input.leap
+    
+    - Bind a host directory to access your data:
+        apptainer exec --bind /path/to/host/data:/data ambertools_conda.sif parmchk2 -i input.mol2 -o output.frcmod
