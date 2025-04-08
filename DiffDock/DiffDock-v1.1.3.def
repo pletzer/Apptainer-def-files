@@ -1,0 +1,132 @@
+Bootstrap: docker
+From: nvidia/cuda:11.7.1-devel-ubuntu22.04
+
+%environment
+    export APPUSER="appuser"
+    export HOME=/home/$APPUSER
+    export ENV_NAME="diffdock"
+    export DIR_NAME="DiffDock"
+    export MAMBA_ROOT_PREFIX=$HOME/micromamba
+    export PATH=$HOME/bin:$HOME/.local/bin:$PATH
+    export PYTHONPATH=$HOME/$DIR_NAME:$PYTHONPATH
+    export SINGULARITY_SHELL=/bin/bash
+
+%post
+    # Update and install dependencies
+    apt-get update -y && apt-get install -y gcc wget curl git tar bzip2 unzip && rm -rf /var/lib/apt/lists/*
+
+    # Create a user
+    export APPUSER="appuser"
+    export HOME=/home/$APPUSER
+    export ENV_NAME="diffdock"
+    export DIR_NAME="DiffDock"
+    
+    # Create user with appropriate permissions
+    useradd -m -u 1000 $APPUSER
+    
+    # Install micromamba
+    cd $HOME
+    curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj bin/micromamba
+    
+    # Setup environment variables
+    export PATH=$HOME/bin:$HOME/.local/bin:$PATH
+    export MAMBA_ROOT_PREFIX=$HOME/micromamba
+    
+    # Copy environment file
+    mkdir -p $HOME/$DIR_NAME
+    cat > $HOME/environment.yml << 'EOL'
+# Content of your environment.yml file should be placed here
+# For example:
+name: diffdock
+channels:
+  - pyg
+  - nvidia
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9.18
+  - pip
+  - python-devtools
+  # Need older setuptools for openfold
+  - setuptools=69.5.1
+  # ProDy needs to be installed with conda
+  - prody==2.2.0
+  - scipy==1.12.0
+  # Need to install torch in order to build openfold, so install it first
+  - pip:
+    - --extra-index-url https://download.pytorch.org/whl/cu117
+    - --find-links https://pytorch-geometric.com/whl/torch-1.13.1+cu117.html
+    - torch==1.13.1+cu117
+    - dllogger @ git+https://github.com/NVIDIA/dllogger.git
+    - e3nn==0.5.1
+    - fair-esm[esmfold]==2.0.0
+    - networkx==2.8.4
+    - pandas==1.5.1
+    - pybind11==2.11.1
+    - pytorch-lightning==1.9.5
+    - rdkit==2022.03.3
+    - scikit-learn==1.1.0
+    - torch==1.13.1+cu117
+    - torch-cluster==1.6.0+pt113cu117
+    - torch-geometric==2.2.0
+    - torch-scatter==2.1.0+pt113cu117
+    - torch-sparse==0.6.16+pt113cu117
+    - torch-spline-conv==1.2.1+pt113cu117
+    - torchmetrics==0.11.0
+  - pip:
+    - openfold @ git+https://github.com/aqlaboratory/openfold.git@4b41059694619831a7db195b7e0988fc4ff3a307
+  - pip:
+    - gradio==3.50.*
+    - requests
+EOL
+    
+    # Create Conda environment
+    chown -R $APPUSER:$APPUSER $HOME
+    su - $APPUSER -c "$HOME/bin/micromamba env create --file $HOME/environment.yml"
+    su - $APPUSER -c "$HOME/bin/micromamba clean -afy --quiet"
+    
+    # Initialize micromamba
+    su - $APPUSER -c "$HOME/bin/micromamba shell init -s bash --root-prefix $MAMBA_ROOT_PREFIX"
+    
+    # Clone or copy your application code
+    cd $HOME
+    if [ -d "/DiffDock" ]; then
+        cp -r /DiffDock $HOME/$DIR_NAME
+    else
+        # If you're building without the source code, you can git clone it here
+        # su - $APPUSER -c "git clone https://github.com/yourusername/DiffDock.git $HOME/$DIR_NAME"
+        echo "Please bind mount your DiffDock directory when running the container"
+    fi
+    
+    # Set permissions
+    chown -R $APPUSER:$APPUSER $HOME
+    
+    # Precompute series for SO(2) and SO(3) groups if the code is available
+    if [ -f "$HOME/$DIR_NAME/utils/precompute_series.py" ]; then
+        su - $APPUSER -c "$HOME/bin/micromamba run -n ${ENV_NAME} python $HOME/$DIR_NAME/utils/precompute_series.py"
+    fi
+
+%runscript
+    exec /bin/bash -c "source $HOME/.bashrc && micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
+
+%startscript
+    exec /bin/bash -c "source $HOME/.bashrc && micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
+
+%help
+    This container provides the DiffDock environment.
+    
+    Usage:
+        # Run with GPU support
+        singularity run --nv DiffDock.sif
+        
+        # Bind mounting your code directory (if needed)
+        singularity run --nv -B /path/to/your/DiffDock:/home/appuser/DiffDock DiffDock.sif
+        
+        # To run a specific script
+        singularity exec --nv DiffDock.sif bash -c "source /home/appuser/.bashrc && micromamba activate diffdock && python /home/appuser/DiffDock/your_script.py"
+
+%labels
+    Author Dinindu Senanayake
+    Version v1.1.3
+    Description DiffDock container for protein-ligand docking
