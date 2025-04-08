@@ -9,7 +9,7 @@ From: nvidia/cuda:11.7.1-devel-ubuntu22.04
     export MAMBA_ROOT_PREFIX=$HOME/micromamba
     export PATH=$HOME/bin:$HOME/.local/bin:$PATH
     export PYTHONPATH=$HOME/$DIR_NAME:$PYTHONPATH
-    export SINGULARITY_SHELL=/bin/bash
+    export SINGULARITY_SHELL="/bin/bash --rcfile /etc/profile.d/mamba-init.sh -i"
 
 %post
     # Update and install dependencies
@@ -35,8 +35,6 @@ From: nvidia/cuda:11.7.1-devel-ubuntu22.04
     # Copy environment file
     mkdir -p $HOME/$DIR_NAME
     cat > $HOME/environment.yml << 'EOL'
-# Content of your environment.yml file should be placed here
-# For example:
 name: diffdock
 channels:
   - pyg
@@ -106,25 +104,90 @@ EOL
     if [ -f "$HOME/$DIR_NAME/utils/precompute_series.py" ]; then
         su - $APPUSER -c "$HOME/bin/micromamba run -n ${ENV_NAME} python $HOME/$DIR_NAME/utils/precompute_series.py"
     fi
+    
+    # Create a script to activate the environment
+    cat > /etc/profile.d/mamba-init.sh << EOF
+#!/bin/bash
+export APPUSER="appuser"
+export HOME=/home/\$APPUSER
+export ENV_NAME="diffdock"
+export DIR_NAME="DiffDock"
+export MAMBA_ROOT_PREFIX=\$HOME/micromamba
+export PATH=\$HOME/bin:\$HOME/.local/bin:\$PATH
+export PYTHONPATH=\$HOME/\$DIR_NAME:\$PYTHONPATH
+
+# Source micromamba
+if [ -f "\$HOME/.bashrc" ]; then
+  source \$HOME/.bashrc
+  eval "\$(\$HOME/bin/micromamba shell hook --shell bash)"
+  micromamba activate \$ENV_NAME
+fi
+EOF
+    chmod +x /etc/profile.d/mamba-init.sh
+    
+    # Create an activation script to manually source when needed
+    cat > $HOME/activate-env.sh << EOF
+#!/bin/bash
+export APPUSER="appuser"
+export HOME=/home/\$APPUSER
+export ENV_NAME="diffdock"
+export DIR_NAME="DiffDock"
+export MAMBA_ROOT_PREFIX=\$HOME/micromamba
+export PATH=\$HOME/bin:\$HOME/.local/bin:\$PATH
+export PYTHONPATH=\$HOME/\$DIR_NAME:\$PYTHONPATH
+
+# Source micromamba
+eval "\$(\$HOME/bin/micromamba shell hook --shell bash)"
+micromamba activate \$ENV_NAME
+EOF
+    chmod +x $HOME/activate-env.sh
+    chown $APPUSER:$APPUSER $HOME/activate-env.sh
+    
+    # Create a custom shell script wrapper for shell command
+    cat > /usr/local/bin/shell-with-env << EOF
+#!/bin/bash
+exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -i "\$@"
+EOF
+    chmod +x /usr/local/bin/shell-with-env
 
 %runscript
-    exec /bin/bash -c "source $HOME/.bashrc && micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
+    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -ic "micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
 
 %startscript
-    exec /bin/bash -c "source $HOME/.bashrc && micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
+    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -ic "micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
+
+%apprun python
+    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -ic "micromamba activate ${ENV_NAME} && python ${@}"
+
+%apprun bash
+    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -i
 
 %help
     This container provides the DiffDock environment.
     
     Usage:
         # Run with GPU support
-        singularity run --nv DiffDock.sif
+        apptainer run --nv DiffDock.sif
+        
+        # Shell into the container with environment activated
+        # Method 1: Using SINGULARITY_SHELL override
+        SINGULARITY_SHELL="/bin/bash --rcfile /etc/profile.d/mamba-init.sh -i" apptainer shell DiffDock.sif
+        
+        # Method 2: Using the shell-with-env wrapper (recommended)
+        apptainer exec DiffDock.sif /usr/local/bin/shell-with-env
+        
+        # Method 3: If the other methods don't work, use this after entering the shell
+        apptainer shell DiffDock.sif
+        source /home/appuser/activate-env.sh
+        
+        # Run Python directly
+        apptainer run --app python DiffDock.sif your_script.py
+        
+        # Run bash with environment activated
+        apptainer run --app bash DiffDock.sif
         
         # Bind mounting your code directory (if needed)
-        singularity run --nv -B /path/to/your/DiffDock:/home/appuser/DiffDock DiffDock.sif
-        
-        # To run a specific script
-        singularity exec --nv DiffDock.sif bash -c "source /home/appuser/.bashrc && micromamba activate diffdock && python /home/appuser/DiffDock/your_script.py"
+        apptainer run --nv -B /path/to/your/DiffDock:/home/appuser/DiffDock DiffDock.sif
 
 %labels
     Author Dinindu Senanayake
