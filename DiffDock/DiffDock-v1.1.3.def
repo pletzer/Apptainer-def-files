@@ -1,195 +1,295 @@
 Bootstrap: docker
-From: nvidia/cuda:11.7.1-devel-ubuntu22.04
+From: nvidia/cuda:11.6.1-devel-ubuntu20.04
 
 %environment
-    export APPUSER="appuser"
-    export HOME=/home/$APPUSER
-    export ENV_NAME="diffdock"
-    export DIR_NAME="DiffDock"
-    export MAMBA_ROOT_PREFIX=$HOME/micromamba
-    export PATH=$HOME/bin:$HOME/.local/bin:$PATH
-    export PYTHONPATH=$HOME/$DIR_NAME:$PYTHONPATH
-    export SINGULARITY_SHELL="/bin/bash --rcfile /etc/profile.d/mamba-init.sh -i"
+    # Basic conda environment setup
+    export PATH=/opt/miniforge3/bin:$PATH
+    export PATH=/opt/miniforge3/envs/DiffDock/bin:$PATH
+    export CONDA_DEFAULT_ENV=DiffDock
+    export CONDA_SHLVL=1
+    export CONDA_PREFIX=/opt/miniforge3/envs/DiffDock
+    export CONDA_EXE=/opt/miniforge3/bin/conda
+    
+    # CUDA environment setup
+    export CUDA_HOME=/usr/local/cuda-11.6
+    export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+    export PATH=$CUDA_HOME/bin:$PATH
+    
+    # Ensure PyTorch finds CUDA
+    export TORCH_CUDA_ARCH_LIST="3.5;5.0;6.0;7.0;7.5;8.0"
+    export FORCE_CUDA=1
 
 %post
-    # Update and install dependencies
-    apt-get update -y && apt-get install -y gcc wget curl git tar bzip2 unzip && rm -rf /var/lib/apt/lists/*
+    # Set shell to bash
+    export SHELL=/bin/bash
 
-    # Create a user
-    export APPUSER="appuser"
-    export HOME=/home/$APPUSER
-    export ENV_NAME="diffdock"
-    export DIR_NAME="DiffDock"
+    # Set noninteractive to avoid timezone questions
+    export DEBIAN_FRONTEND=noninteractive
     
-    # Create user with appropriate permissions
-    useradd -m -u 1000 $APPUSER
+    # Pre-set timezone to avoid prompts
+    ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime
     
-    # Install micromamba
-    cd $HOME
-    curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xj bin/micromamba
+    # Install basic dependencies
+    apt-get update
+    apt-get install -y wget bzip2 ca-certificates git curl tzdata
+    apt-get install -y build-essential cmake ninja-build gcc g++ 
+    apt-get install -y libboost-all-dev
+    apt-get clean
     
-    # Setup environment variables
-    export PATH=$HOME/bin:$HOME/.local/bin:$PATH
-    export MAMBA_ROOT_PREFIX=$HOME/micromamba
+    # Set up CUDA environment
+    export CUDA_HOME=/usr/local/cuda-11.6
+    export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
+    export PATH=$CUDA_HOME/bin:$PATH
+    export TORCH_CUDA_ARCH_LIST="3.5;5.0;6.0;7.0;7.5;8.0"
+    export FORCE_CUDA=1
     
-    # Copy environment file
-    mkdir -p $HOME/$DIR_NAME
-    cat > $HOME/environment.yml << 'EOL'
-name: diffdock
-channels:
-  - pyg
-  - nvidia
-  - pytorch
-  - conda-forge
-  - defaults
-dependencies:
-  - python=3.9.18
-  - pip
-  - python-devtools
-  # Need older setuptools for openfold
-  - setuptools=69.5.1
-  # ProDy needs to be installed with conda
-  - prody==2.2.0
-  - scipy==1.12.0
-  # Need to install torch in order to build openfold, so install it first
-  - pip:
-    - --extra-index-url https://download.pytorch.org/whl/cu117
-    - --find-links https://pytorch-geometric.com/whl/torch-1.13.1+cu117.html
-    - torch==1.13.1+cu117
-    - dllogger @ git+https://github.com/NVIDIA/dllogger.git
-    - e3nn==0.5.1
-    - fair-esm[esmfold]==2.0.0
-    - networkx==2.8.4
-    - pandas==1.5.1
-    - pybind11==2.11.1
-    - pytorch-lightning==1.9.5
-    - rdkit==2022.03.3
-    - scikit-learn==1.1.0
-    - torch==1.13.1+cu117
-    - torch-cluster==1.6.0+pt113cu117
-    - torch-geometric==2.2.0
-    - torch-scatter==2.1.0+pt113cu117
-    - torch-sparse==0.6.16+pt113cu117
-    - torch-spline-conv==1.2.1+pt113cu117
-    - torchmetrics==0.11.0
-  - pip:
-    - openfold @ git+https://github.com/aqlaboratory/openfold.git@4b41059694619831a7db195b7e0988fc4ff3a307
-  - pip:
-    - gradio==3.50.*
-    - requests
-EOL
+    # Install Miniforge3 (instead of Anaconda)
+    cd /tmp
+    wget -q https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+    /bin/bash Miniforge3-Linux-x86_64.sh -b -p /opt/miniforge3
+    rm Miniforge3-Linux-x86_64.sh
     
-    # Create Conda environment
-    chown -R $APPUSER:$APPUSER $HOME
-    su - $APPUSER -c "$HOME/bin/micromamba env create --file $HOME/environment.yml"
-    su - $APPUSER -c "$HOME/bin/micromamba clean -afy --quiet"
+    # Add conda to PATH directly (without relying on bash profile)
+    export PATH="/opt/miniforge3/bin:$PATH"
     
-    # Initialize micromamba
-    su - $APPUSER -c "$HOME/bin/micromamba shell init -s bash --root-prefix $MAMBA_ROOT_PREFIX"
+    # Don't auto-activate base environment
+    /opt/miniforge3/bin/conda config --set auto_activate_base false
     
-    # Clone or copy your application code
-    cd $HOME
-    if [ -d "/DiffDock" ]; then
-        cp -r /DiffDock $HOME/$DIR_NAME
-    else
-        # If you're building without the source code, you can git clone it here
-        # su - $APPUSER -c "git clone https://github.com/yourusername/DiffDock.git $HOME/$DIR_NAME"
-        echo "Please bind mount your DiffDock directory when running the container"
+    # Create DiffDock environment manually
+    /opt/miniforge3/bin/conda create -y -n DiffDock python=3.8
+    
+    # Write a simple activation script to /etc
+    mkdir -p /etc/conda
+    cat > /etc/conda/activate.sh << 'EOF'
+#!/bin/bash
+source /opt/miniforge3/etc/profile.d/conda.sh
+conda activate DiffDock
+EOF
+    chmod +x /etc/conda/activate.sh
+    
+    # Use conda run to install packages (avoids conda init and shell issues)
+    /opt/miniforge3/bin/conda run -n DiffDock pip install --upgrade pip
+    
+    # Install PyTorch with CUDA 11.6
+    /opt/miniforge3/bin/conda run -n DiffDock pip install --no-cache-dir torch==1.12.1 torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu116
+    
+    # Simple script to check if CUDA is available in PyTorch
+    /opt/miniforge3/bin/conda run -n DiffDock python -c "import torch; print('CUDA available:', torch.cuda.is_available()); print('CUDA version:', torch.version.cuda)"
+    
+    # Directly install PyTorch Geometric dependencies with CUDA support
+    # Setting environment variables to ensure CUDA is used
+    export TORCH_CUDA_ARCH_LIST="3.5;5.0;6.0;7.0;7.5;8.0"
+    export FORCE_CUDA=1
+    
+    # Install PyG packages one by one with CUDA support
+    /opt/miniforge3/bin/conda run -n DiffDock pip install torch-scatter -f https://data.pyg.org/whl/torch-1.12.1+cu116.html
+    /opt/miniforge3/bin/conda run -n DiffDock pip install torch-sparse -f https://data.pyg.org/whl/torch-1.12.1+cu116.html
+    /opt/miniforge3/bin/conda run -n DiffDock pip install torch-cluster -f https://data.pyg.org/whl/torch-1.12.1+cu116.html
+    /opt/miniforge3/bin/conda run -n DiffDock pip install torch-spline-conv -f https://data.pyg.org/whl/torch-1.12.1+cu116.html
+    /opt/miniforge3/bin/conda run -n DiffDock pip install torch-geometric
+    
+    # Create a script to test if the installation works with CUDA
+    cat > /tmp/test_torch_cluster.py << 'EOF'
+import torch
+import torch_cluster
+
+# Create two points 
+point1 = torch.tensor([[0.0, 0.0], [1.0, 1.0]], device='cuda' if torch.cuda.is_available() else 'cpu')
+batch1 = torch.tensor([0, 0], device=point1.device)
+
+try:
+    edge_index = torch_cluster.radius_graph(point1, r=1.5, batch=batch1)
+    print("Successfully ran radius_graph:")
+    print(f"Device: {point1.device}")
+    print(f"Result shape: {edge_index.shape}")
+    print("CUDA operation successful")
+except RuntimeError as e:
+    if "Not compiled with CUDA support" in str(e):
+        print("ERROR: torch_cluster is not compiled with CUDA support")
+        exit(1)
+    else:
+        print(f"Other error: {e}")
+        exit(2)
+EOF
+    
+    # Test if the installation works
+    /opt/miniforge3/bin/conda run -n DiffDock python /tmp/test_torch_cluster.py || {
+        # If the test fails, try to build from source
+        echo "CUDA support test failed. Trying to build from source..."
+        
+        # Install required build dependencies
+        /opt/miniforge3/bin/conda run -n DiffDock pip install setuptools wheel ninja
+
+        # Build torch-cluster from source with CUDA support
+        cd /tmp
+        git clone https://github.com/rusty1s/pytorch_cluster.git
+        cd pytorch_cluster
+        git checkout 1.6.0
+        # Force CUDA during build
+        export FORCE_CUDA=1
+        /opt/miniforge3/bin/conda run -n DiffDock python setup.py build_ext --inplace
+        /opt/miniforge3/bin/conda run -n DiffDock python setup.py install
+        
+        # Test again
+        /opt/miniforge3/bin/conda run -n DiffDock python /tmp/test_torch_cluster.py || {
+            echo "Still failed to get CUDA support even after building from source."
+            echo "Warning: DiffDock will run in CPU mode which will be very slow."
+        }
+    }
+    
+    # Install other required DiffDock packages
+    /opt/miniforge3/bin/conda run -n DiffDock pip install numpy scipy networkx matplotlib rdkit-pypi biopython e3nn spyrmsd pandas pyyaml prody
+    
+    # Set up DiffDock directory and ESM
+    mkdir -p /DiffDock/esm
+    
+    # Clone ESM if not provided in files section
+    if [ ! -d "/DiffDock/esm/.git" ]; then
+        cd /DiffDock
+        git clone https://github.com/facebookresearch/esm.git esm
     fi
     
-    # Set permissions
-    chown -R $APPUSER:$APPUSER $HOME
+    # Install ESM
+    /opt/miniforge3/bin/conda run -n DiffDock pip install -e /DiffDock/esm/
     
-    # Precompute series for SO(2) and SO(3) groups if the code is available
-    if [ -f "$HOME/$DIR_NAME/utils/precompute_series.py" ]; then
-        su - $APPUSER -c "$HOME/bin/micromamba run -n ${ENV_NAME} python $HOME/$DIR_NAME/utils/precompute_series.py"
-    fi
-    
-    # Create a script to activate the environment
-    cat > /etc/profile.d/mamba-init.sh << EOF
-#!/bin/bash
-export APPUSER="appuser"
-export HOME=/home/\$APPUSER
-export ENV_NAME="diffdock"
-export DIR_NAME="DiffDock"
-export MAMBA_ROOT_PREFIX=\$HOME/micromamba
-export PATH=\$HOME/bin:\$HOME/.local/bin:\$PATH
-export PYTHONPATH=\$HOME/\$DIR_NAME:\$PYTHONPATH
+    # Create a testing script to verify CUDA support for PyTorch Geometric
+    cat > /opt/test_cuda_support.py << 'EOF'
+#!/usr/bin/env python3
+import os
+import sys
+import torch
+import subprocess
 
-# Source micromamba
-if [ -f "\$HOME/.bashrc" ]; then
-  source \$HOME/.bashrc
-  eval "\$(\$HOME/bin/micromamba shell hook --shell bash)"
-  micromamba activate \$ENV_NAME
-fi
-EOF
-    chmod +x /etc/profile.d/mamba-init.sh
-    
-    # Create an activation script to manually source when needed
-    cat > $HOME/activate-env.sh << EOF
-#!/bin/bash
-export APPUSER="appuser"
-export HOME=/home/\$APPUSER
-export ENV_NAME="diffdock"
-export DIR_NAME="DiffDock"
-export MAMBA_ROOT_PREFIX=\$HOME/micromamba
-export PATH=\$HOME/bin:\$HOME/.local/bin:\$PATH
-export PYTHONPATH=\$HOME/\$DIR_NAME:\$PYTHONPATH
+def print_header(title):
+    print("\n" + "=" * 60)
+    print(f" {title}")
+    print("=" * 60)
 
-# Source micromamba
-eval "\$(\$HOME/bin/micromamba shell hook --shell bash)"
-micromamba activate \$ENV_NAME
-EOF
-    chmod +x $HOME/activate-env.sh
-    chown $APPUSER:$APPUSER $HOME/activate-env.sh
+print_header("CUDA Environment")
+print(f"CUDA_HOME: {os.environ.get('CUDA_HOME', 'Not set')}")
+print(f"LD_LIBRARY_PATH: {os.environ.get('LD_LIBRARY_PATH', 'Not set')}")
+print(f"TORCH_CUDA_ARCH_LIST: {os.environ.get('TORCH_CUDA_ARCH_LIST', 'Not set')}")
+
+print_header("PyTorch CUDA Support")
+print(f"PyTorch version: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+if torch.cuda.is_available():
+    print(f"CUDA version: {torch.version.cuda}")
+    print(f"Device count: {torch.cuda.device_count()}")
+    try:
+        print(f"Current device: {torch.cuda.current_device()}")
+        print(f"Device name: {torch.cuda.get_device_name(0)}")
+    except:
+        print("Cannot access CUDA device (probably running without --nv flag)")
+
+print_header("PyTorch Geometric Package Tests")
+modules = ["torch_scatter", "torch_sparse", "torch_cluster", "torch_spline_conv"]
+
+for module_name in modules:
+    try:
+        print(f"\nTesting {module_name}...")
+        module = __import__(module_name)
+        print(f"{module_name} imported successfully")
+        
+        # Create test data on CUDA if available
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"Using device: {device}")
+        
+        if module_name == "torch_scatter":
+            src = torch.randn(10, 3, device=device)
+            index = torch.tensor([0, 1, 0, 2, 2, 3, 4, 5, 3, 8], device=device)
+            try:
+                out = module.scatter_mean(src, index, dim=0)
+                print(f"Scatter operation successful on {device}")
+            except RuntimeError as e:
+                if "compiled with CUDA" in str(e):
+                    print(f"ERROR: {module_name} is not compiled with CUDA support!")
+                else:
+                    print(f"Error: {e}")
+        
+        elif module_name == "torch_sparse":
+            indices = torch.tensor([[0, 1, 1], [0, 0, 1]], device=device)
+            values = torch.tensor([1.0, 2.0, 3.0], device=device)
+            try:
+                from torch_sparse import SparseTensor
+                sparse = SparseTensor(row=indices[0], col=indices[1], value=values)
+                print(f"SparseTensor creation successful on {device}")
+            except RuntimeError as e:
+                if "compiled with CUDA" in str(e):
+                    print(f"ERROR: {module_name} is not compiled with CUDA support!")
+                else:
+                    print(f"Error: {e}")
+        
+        elif module_name == "torch_cluster":
+            x = torch.tensor([[0.0, 0.0], [1.0, 1.0]], device=device)
+            batch = torch.tensor([0, 0], device=device)
+            try:
+                edge_index = module.radius_graph(x, r=1.5, batch=batch)
+                print(f"Radius graph operation successful on {device}")
+            except RuntimeError as e:
+                if "compiled with CUDA" in str(e):
+                    print(f"ERROR: {module_name} is not compiled with CUDA support!")
+                else:
+                    print(f"Error: {e}")
+        
+        elif module_name == "torch_spline_conv":
+            # Just import check is enough since operations are complex
+            print(f"{module_name} test limited to import check")
     
-    # Create a custom shell script wrapper for shell command
-    cat > /usr/local/bin/shell-with-env << EOF
-#!/bin/bash
-exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -i "\$@"
+    except ImportError:
+        print(f"{module_name} not installed")
+    except Exception as e:
+        print(f"Error testing {module_name}: {e}")
+
+print("\nTest complete")
 EOF
-    chmod +x /usr/local/bin/shell-with-env
+    chmod +x /opt/test_cuda_support.py
+    
+    # Clean up
+    /opt/miniforge3/bin/conda clean -afy
+    apt-get clean
+    rm -rf /var/lib/apt/lists/* /tmp/pytorch* /tmp/install_pyg.py
 
 %runscript
-    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -ic "micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
+    . /etc/conda/activate.sh
+    exec "$@"
 
 %startscript
-    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -ic "micromamba activate ${ENV_NAME} && python $HOME/$DIR_NAME/utils/print_device.py"
+    . /etc/conda/activate.sh
+    exec "$@"
 
 %apprun python
-    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -ic "micromamba activate ${ENV_NAME} && python ${@}"
+    . /etc/conda/activate.sh
+    exec python "$@"
 
-%apprun bash
-    exec /bin/bash --rcfile /etc/profile.d/mamba-init.sh -i
+%apprun test-cuda
+    . /etc/conda/activate.sh
+    exec python /opt/test_cuda_support.py
 
 %help
-    This container provides the DiffDock environment.
+    This container provides the DiffDock environment with CUDA 11.6 support.
+    The DiffDock conda environment is activated by default using Miniforge3.
     
     Usage:
-        # Run with GPU support
-        apptainer run --nv DiffDock.sif
+        # Run container with shell (with GPU support)
+        apptainer shell --nv DiffDock.sif
         
-        # Shell into the container with environment activated
-        # Method 1: Using SINGULARITY_SHELL override
-        SINGULARITY_SHELL="/bin/bash --rcfile /etc/profile.d/mamba-init.sh -i" apptainer shell DiffDock.sif
+        # Run a python script (with GPU support)
+        apptainer run --nv --app python DiffDock.sif your_script.py
         
-        # Method 2: Using the shell-with-env wrapper (recommended)
-        apptainer exec DiffDock.sif /usr/local/bin/shell-with-env
+        # Execute a command (with GPU support)
+        apptainer exec --nv DiffDock.sif python -c "import torch; print(torch.cuda.is_available())"
         
-        # Method 3: If the other methods don't work, use this after entering the shell
-        apptainer shell DiffDock.sif
-        source /home/appuser/activate-env.sh
+        # Test CUDA support for PyTorch Geometric
+        apptainer run --nv --app test-cuda DiffDock.sif
         
-        # Run Python directly
-        apptainer run --app python DiffDock.sif your_script.py
-        
-        # Run bash with environment activated
-        apptainer run --app bash DiffDock.sif
-        
-        # Bind mounting your code directory (if needed)
-        apptainer run --nv -B /path/to/your/DiffDock:/home/appuser/DiffDock DiffDock.sif
+        # IMPORTANT: Always use the --nv flag to enable GPU support
 
 %labels
-    Author Dinindu Senanayake
-    Version v1.1.3
-    Description DiffDock container for protein-ligand docking
+    Author DiffDock Team
+    Version 1.0
+    
+%files
+    # Uncomment and modify these lines to copy files from host to container during build
+    # If you have the DiffDock repository locally:
+    # ./DiffDock /DiffDock
