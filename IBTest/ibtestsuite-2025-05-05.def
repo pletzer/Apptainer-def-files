@@ -1,0 +1,178 @@
+Bootstrap: docker
+From: ubuntu:22.04
+
+%post
+    # Set environment variables to prevent interactive installations
+    export DEBIAN_FRONTEND=noninteractive
+    
+    # Update and install basic utilities
+    apt-get update && apt-get upgrade -y
+    apt-get install -y wget gnupg lsb-release apt-utils software-properties-common
+
+    # Install necessary dependencies
+    apt-get install -y \
+        build-essential \
+        libnl-3-dev \
+        libnl-route-3-dev \
+        libpci-dev \
+        libudev-dev \
+        pkg-config \
+        python3 \
+        python3-dev \
+        perl \
+        flex \
+        autoconf \
+        automake \
+        libtool
+
+    # Install RDMA Core and InfiniBand packages directly from Ubuntu repositories
+    apt-get install -y \
+        rdma-core \
+        ibverbs-utils \
+        infiniband-diags \
+        perftest \
+        libibverbs-dev \
+        libibumad-dev \
+        libibmad-dev
+
+    # Install additional InfiniBand tools
+    apt-get install -y \
+        ibutils \
+        opensm \
+        ibacm \
+        librdmacm-dev
+
+    # Create wrappers for the tools to handle potential path or permission issues
+    mkdir -p /usr/local/bin
+    
+    # Create wrapper scripts for command access
+    cat > /usr/local/bin/ibstat-wrapper << 'EOL'
+#!/bin/bash
+if [ -x /usr/bin/ibstat ]; then
+    /usr/bin/ibstat "$@"
+elif [ -x /usr/sbin/ibstat ]; then
+    /usr/sbin/ibstat "$@"
+else
+    echo "ibstat command not found"
+    exit 1
+fi
+EOL
+    
+    cat > /usr/local/bin/ibnetdiscover-wrapper << 'EOL'
+#!/bin/bash
+if [ -x /usr/bin/ibnetdiscover ]; then
+    /usr/bin/ibnetdiscover "$@"
+elif [ -x /usr/sbin/ibnetdiscover ]; then
+    /usr/sbin/ibnetdiscover "$@"
+else
+    echo "ibnetdiscover command not found"
+    exit 1
+fi
+EOL
+    
+    # Create similar wrappers for all required tools
+    for cmd in ibv_devinfo ibv_devices ibdiagnet ibcheckerrors ibswitches ibcableinfo ibping; do
+        cat > /usr/local/bin/${cmd}-wrapper << EOL
+#!/bin/bash
+if [ -x /usr/bin/${cmd} ]; then
+    /usr/bin/${cmd} "\$@"
+elif [ -x /usr/sbin/${cmd} ]; then
+    /usr/sbin/${cmd} "\$@"
+else
+    echo "${cmd} command not found"
+    exit 1
+fi
+EOL
+    done
+    
+    # Make all wrappers executable
+    chmod +x /usr/local/bin/*-wrapper
+    
+    # Create symbolic links from wrapper names to conventional names
+    ln -sf /usr/local/bin/ibstat-wrapper /usr/local/bin/ibstat
+    ln -sf /usr/local/bin/ibnetdiscover-wrapper /usr/local/bin/ibnetdiscover
+    ln -sf /usr/local/bin/ibv_devinfo-wrapper /usr/local/bin/ibv_devinfo
+    ln -sf /usr/local/bin/ibv_devices-wrapper /usr/local/bin/ibv_devices
+    ln -sf /usr/local/bin/ibdiagnet-wrapper /usr/local/bin/ibdiagnet
+    ln -sf /usr/local/bin/ibcheckerrors-wrapper /usr/local/bin/ibcheckerrors
+    ln -sf /usr/local/bin/ibswitches-wrapper /usr/local/bin/ibswitches
+    ln -sf /usr/local/bin/ibcableinfo-wrapper /usr/local/bin/ibcableinfo
+    ln -sf /usr/local/bin/ibping-wrapper /usr/local/bin/ibping
+    
+    # No need for wrapper for these as they should be in standard location
+    # The performance tests from perftest package
+
+    # Clean up to reduce image size
+    apt-get clean
+    rm -rf /var/lib/apt/lists/*
+
+%environment
+    export LC_ALL=C
+    export PATH=/usr/local/bin:$PATH
+
+%runscript
+    echo "==============================================="
+    echo "InfiniBand Tools Container"
+    echo "==============================================="
+    echo "Available InfiniBand tools:"
+    echo "- ibstat: Report basic information about InfiniBand devices"
+    echo "- ibv_devinfo: Query RDMA devices"
+    echo "- ibv_devices: List RDMA devices"
+    echo "- ibnetdiscover: Discover InfiniBand network topology"
+    echo "- ibdiagnet: InfiniBand diagnostic tool"
+    echo "- ibcheckerrors: Report InfiniBand link errors"
+    echo "- ibswitches: Show InfiniBand switches in fabric"
+    echo "- ibcableinfo: Show InfiniBand cable information"
+    echo "- ibping: Test InfiniBand connectivity"
+    echo "- ib_read_bw: Measure InfiniBand read bandwidth"
+    echo "- ib_write_bw: Measure InfiniBand write bandwidth"
+    echo "- ib_send_bw: Measure InfiniBand send bandwidth"
+    echo ""
+    echo "Usage examples:"
+    echo "  apptainer exec --network=host --bind=/sys --bind=/dev infiniband-tools.sif ibstat"
+    echo "  apptainer exec --network=host --bind=/sys --bind=/dev infiniband-tools.sif ib_read_bw"
+    echo ""
+    echo "Note: These tools require proper permissions and access to InfiniBand devices."
+    echo "You may need to run Apptainer with sudo or as root for some operations."
+    echo "==============================================="
+    
+    # Print information about installed tools
+    echo "Tool availability status:"
+    echo "==============================================="
+    commands=("ibstat" "ibv_devinfo" "ibv_devices" "ibnetdiscover" "ibdiagnet" 
+              "ibcheckerrors" "ibswitches" "ibcableinfo" "ibping" 
+              "ib_read_bw" "ib_write_bw" "ib_send_bw")
+    
+    for cmd in "${commands[@]}"; do
+        cmd_path=$(command -v $cmd 2>/dev/null)
+        if [ -n "$cmd_path" ]; then
+            echo "✓ $cmd is available at $cmd_path"
+        else
+            echo "✗ $cmd is not available"
+        fi
+    done
+
+%labels
+    Author "Dini Senanayake"
+    Version 20205-05-05
+    Description "InfiniBand diagnostic and benchmark tools"
+
+%help
+    This container includes the following InfiniBand tools:
+    - ibstat: Reports basic information about InfiniBand devices
+    - ibv_devinfo: Query RDMA devices
+    - ibv_devices: List RDMA devices
+    - ibnetdiscover: Discover InfiniBand network topology
+    - ibdiagnet: InfiniBand diagnostic tool
+    - ibcheckerrors: Report InfiniBand link errors
+    - ibswitches: Show InfiniBand switches in fabric
+    - ibcableinfo: Show InfiniBand cable information
+    - ibping: Test InfiniBand connectivity
+    - ib_read_bw: Measure InfiniBand read bandwidth
+    - ib_write_bw: Measure InfiniBand write bandwidth
+    - ib_send_bw: Measure InfiniBand send bandwidth
+
+    Usage examples:
+    $ apptainer run infiniband-tools.sif
+    $ apptainer exec infiniband-tools.sif ibstat
+    $ apptainer exec infiniband-tools.sif ib_read_bw -d mlx5_0 -i 1
