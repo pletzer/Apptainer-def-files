@@ -1,0 +1,59 @@
+The following modules were not unloaded:
+  (Use "module --force purge" to unload all):
+
+  1) XALT/minimal   2) slurm   3) NeSI
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   wmc005
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   wmc005
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   wmc006
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+WARNING: There was an error initializing an OpenFabrics device.
+
+  Local host:   wmc006
+  Local device: mlx5_0
+--------------------------------------------------------------------------
+
+=== MPI Test Program Overview ===
+Total number of processes: 4
+
+Process Distribution:
+Rank 0 is running on node: wmc005
+Rank 1 is running on node: wmc005
+Rank 2 is running on node: wmc006
+Rank 3 is running on node: wmc006
+
+Detailed information for Rank 0:
+  Hostname: wmc005
+  MPI Processor Name: wmc005
+  Process ID: 3410979
+
+Detailed information for Rank 1:
+  Hostname: wmc005
+  MPI Processor Name: wmc005
+  Process ID: 3410978
+
+Detailed information for Rank 2:
+  Hostname: wmc006
+  MPI Processor Name: wmc006
+  Process ID: 3205718
+
+Detailed information for Rank 3:
+  Hostname: wmc006
+  MPI Processor Name: wmc006
+  Process ID: 3205719
+
+=== Test Complete ===
