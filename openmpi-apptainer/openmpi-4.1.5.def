@@ -42,6 +42,7 @@ From: ubuntu:22.04
         python-is-python3 \
         automake \
         autoconf \
+        cmake \
         libtool \
         flex \
         hwloc \
